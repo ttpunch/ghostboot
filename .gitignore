@@ -1,0 +1,16 @@
+# Never commit images, disks, binaries or machine data
+*.gho
+*.ghs
+*.vhd
+*.vhdx
+*.vdi
+*.vmdk
+*.iso
+*.exe
+*.zap20
+report.json
+reports/
+local_data/
+__pycache__/
+.pytest_cache/
+.env
