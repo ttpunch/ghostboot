@@ -17,6 +17,21 @@ restore steps here; load `ghost-image-mount` for them.
 
 Companion skills in this repo: `ghost-analyse`, `vbox-vm`, `bsod-triage`.
 
+## Step 0 - ask for the two paths first (required)
+
+Before running anything, read files, or planning disk work, ask the user for exactly these two
+paths. Do not guess them, do not search the machine for them, and do not fall back to defaults.
+If the user gave only one, ask for the other. Do not continue until you have both.
+
+1. **Ghost image path:** the full path to the `.GHO` file. Its `.GHS` / `.001` spans must sit in the same
+   folder. Example: `D:\Backups\machine.GHO`
+2. **VHD drive or folder path:** the drive (portable or PC drive) and folder where the virtual disk will be
+   created. Example: `E:\GhostVhd\`
+
+Then echo both back, run `scripts/Test-GhostbootPreflight.ps1` with them, and wait for the user to
+confirm before any disk is created or written. Also note the user's reply when they say the drive is
+portable: USB drives are slow, and the VHD must be on NTFS or exFAT (not FAT32).
+
 ## Rules
 
 - A `.GHO` is not a raw disk image. `qemu-img`, `VBoxManage convertfromraw` and `Mount-DiskImage` cannot
@@ -35,7 +50,7 @@ Companion skills in this repo: `ghost-analyse`, `vbox-vm`, `bsod-triage`.
 
 ## Phases
 
-1. **Inputs.** Ask for: the `.GHO` path (and `.GHS` spans), the drive for the VHD, the machine type and
+1. **Inputs.** The two paths from Step 0 must already be in hand. Then also ask for: the machine type and
    Windows version if known, the original disk size, and the BSOD stop code and screenshot if the user saw one.
 2. **Preflight.** Run `scripts/Test-GhostbootPreflight.ps1 -SourceGho <gho> -VhdFolder <folder> -GhostPath <ghost32.exe>`.
    Fix every failed check before continuing (elevation, free space, filesystem, stale virtual disks, VirtualBox).
