@@ -15,6 +15,10 @@
   Drive letter root or folder of the restored disk (for example G:\).
 .PARAMETER CheckRegistry
   Also inspect the offline SYSTEM hive. Needs an elevated PowerShell.
+.PARAMETER CheckDirty
+  Also ask Windows whether the volume's NTFS dirty flag is set (needs an elevated PowerShell and a
+  drive letter root such as G:\). A dirty volume makes Windows 2000/XP stop with 0x7B and status
+  0xC0000032 at boot.
 .PARAMETER OutFile
   Optional path for the JSON report. The summary is always printed.
 
@@ -25,6 +29,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$Root,
     [switch]$CheckRegistry,
+    [switch]$CheckDirty,
     [string]$OutFile
 )
 
@@ -73,6 +78,7 @@ $report = [ordered]@{
     Os          = $null
     Boot        = $null
     Registry    = $null
+    Dirty       = $null
     Findings    = $null
 }
 
@@ -125,9 +131,10 @@ if ($bootInfo.BootIniPresent) {
     if ($m) { $bootInfo.KernelSwitch = $m.Matches[0].Groups[1].Value }
 }
 $sys32 = Join-Path $winDir 'System32'
+# Only names that look like a kernel are suspicious. Stock tools (ntbackup, ntdsutil, ntsd, ntvdm) are not.
 $stock = 'ntoskrnl.exe', 'ntkrnlpa.exe', 'ntkrnlmp.exe', 'ntkrpamp.exe'
 $custom = Get-ChildItem -LiteralPath $sys32 -Filter 'nt*.exe' -ErrorAction SilentlyContinue |
-    Where-Object { $stock -notcontains $_.Name.ToLower() } | ForEach-Object { $_.Name }
+    Where-Object { $_.Name -match '^nt(os|kr)' -and ($stock -notcontains $_.Name.ToLower()) } | ForEach-Object { $_.Name }
 if ($custom) { $bootInfo.CustomKernelFiles = @($custom) }
 $report.Boot = $bootInfo
 
@@ -194,6 +201,25 @@ if ($CheckRegistry) {
         Add-Finding 'error' 'NO-SYSTEM-HIVE' 'SYSTEM hive not found.' 'The restore may be incomplete. Re-run the restore.'
     }
     $report.Registry = $reg
+}
+
+# 4b. NTFS dirty flag (a dirty volume blocks the Windows 2000/XP boot with 0x7B / 0xC0000032).
+if ($CheckDirty) {
+    $drv = [System.IO.Path]::GetPathRoot($Root).TrimEnd('')
+    $report.Dirty = $null
+    if ($drv -match '^[A-Za-z]:$') {
+        $q = (& fsutil.exe dirty query $drv 2>&1) -join ' '
+        $report.Dirty = $q
+        if ($q -match 'is Dirty') {
+            Add-Finding 'error' 'NTFS-DIRTY' "The NTFS dirty flag is set on $drv." 'Run chkdsk /f on a COPY of the disk from a modern Windows host, then boot. Do this before any registry work (bsod-triage, 0x7B with status 0xC0000032).'
+        } elseif ($q -match 'NOT Dirty') {
+            Add-Finding 'info' 'NTFS-CLEAN' "The NTFS dirty flag is not set on $drv." ''
+        } else {
+            Add-Finding 'warn' 'NTFS-DIRTY-UNKNOWN' "Could not read the dirty flag: $q" 'Run an elevated PowerShell.'
+        }
+    } else {
+        Add-Finding 'warn' 'NTFS-DIRTY-SKIPPED' 'The dirty check needs a drive letter root such as G:\.' ''
+    }
 }
 
 # 5. Summary.

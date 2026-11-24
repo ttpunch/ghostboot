@@ -1,55 +1,69 @@
 ---
 name: ghost-analyse
-description: Use to analyse a restored Ghost disk (Windows version, bitness, partitions, boot method, storage drivers, custom kernel) before booting it in a VM, and to read the findings.
-version: 0.1.0
+description: Use to analyse a restored Ghost disk (Windows version, bitness, partitions, boot method, NTFS dirty flag, storage drivers, HAL, original hardware) before booting it in a VM, and to read the findings.
+version: 0.2.0
 license: MIT
 metadata:
   hermes:
-    tags: [ghost, analysis, windows, boot, registry, read-only]
+    tags: [ghost, analysis, windows, boot, registry, ntfs, read-only]
 ---
 
 # ghost-analyse
 
-Predict the first-boot BSOD before you boot. Works on a mounted restored disk. Read-only: the script
-copies the SYSTEM hive to a temp folder and loads the copy, so the disk itself is never changed.
+Predict the first-boot failure before you boot. Everything here is read-only against the restored disk.
 
-## Run
+## 0. Does a restore already exist?
+
+Before restoring again, look for an earlier restore (VHD/VDI from a previous attempt, a VM folder named after the
+image). Attach it **read-only** and analyse it; a finished restore saves hours. Check sizes: a dynamic VHD whose used
+size is close to the image's uncompressed data is probably complete.
+
+Attach read-only (elevated):
 
 ```powershell
-# elevated PowerShell, VHD attached, Windows volume has a drive letter (here G:)
-.\scripts\Get-GhostDiskAnalysis.ps1 -Root G:\ -CheckRegistry -OutFile .\report.json
+@"
+select vdisk file="<path>.vhd"
+attach vdisk readonly
+"@ | Out-File -Encoding ascii $env:TEMP\a.txt; diskpart /s $env:TEMP\a.txt
 ```
 
-Without `-CheckRegistry` (no elevation needed) you get version, bitness and boot files only.
+If you are not elevated, use `scripts/Invoke-ElevatedLogged.ps1` (one UAC click) to run the attach script and
+capture its output. Files written by an old Windows keep that machine's ACLs: reads can be denied in a normal
+session, so copy what you need with `robocopy <dir> <dest> <file> /B` from an elevated shell. Detach when done.
 
-## What it reports
+## 1. Analyse the volume
 
-| Area | Fields | Why it matters |
+```powershell
+.\scripts\Get-GhostDiskAnalysis.ps1 -Root G:\ -CheckDirty -OutFile .\report.json      # elevated for -CheckDirty/-CheckRegistry
+python .\scripts\hive_report.py <copy of WINNT\system32\config\system>                 # no elevation, no reg load
+```
+
+`Get-GhostDiskAnalysis.ps1` reports version, bitness, boot files (boot.ini, ntldr, bootmgr, BCD), a replaced
+kernel (a `/Kernel=` switch, or `ntos*.exe`/`ntkr*.exe` files), the NTFS dirty flag (`-CheckDirty`) and, with
+`-CheckRegistry`, storage drivers. `hive_report.py` reads the SYSTEM hive file directly and reports: ControlSet,
+service pack code, storage service start values, the critical device entries, the HAL device, the original PCI
+hardware and every boot-start (0) and system-start (1) driver.
+
+## 2. What the findings mean
+
+| Finding | Meaning | Go to (`bsod-triage`) |
 |---|---|---|
-| OS | kernel version, name, 32/64-bit | picks VM settings; 5.0 is 2000, 5.1 XP, 6.1 Windows 7 |
-| Boot | `boot.ini`, `bootmgr`, `ntldr`, BCD, EFI BCD, `/Kernel=` switch, extra `nt*.exe` | replaced kernel is a likely blocker; BCD names the old disk signature |
-| Registry (SYSTEM copy) | current ControlSet, Start values for IDE/AHCI/SCSI services, CriticalDeviceDatabase entries | decides STOP 0x7B |
-| Findings | severity, id, message, fix | feed straight into `bsod-triage` |
+| `NTFS-DIRTY` | dirty flag set: Windows 2000/XP stop 0x7B with status 0xC0000032 | 3a |
+| `OEM-KERNEL` | replaced kernel | 6 |
+| `STOP-0x7B-IDE-DISABLED` | atapi/pciide not boot-start | 3b |
+| `CRITICAL-DEVICE-ENTRIES` | no entry for the VM's IDE controller | 3b |
+| `BCD-DISK-SIGNATURE` | BCD names the old disk | 4 |
+| `NO-BOOT-CONFIG` / `NO-WINDOWS` | wrong partition | analyse the other partition |
+| HAL name in `hive_report.py` | decides the VM's I/O APIC setting | 2 |
+| third-party boot drivers (Start=0) | may hang in a VM with no matching hardware | 2 |
 
-## Also check by hand
+Original PCI hardware (Enum\PCI) tells you what the OS expects and what will show as "new hardware" in the VM.
+A generic `pci#cc_0101 -> pciide` entry means the VM's IDE controller usually works without registry edits.
 
-- Partition list: `Get-Disk`, `Get-Partition -DiskNumber <N>`. MBR or GPT, system versus OS partition, hidden or
-  recovery partitions. Run the script on the OS partition; check the boot partition for `bootmgr` and `Boot\BCD`.
-- `HKLM\SYSTEM\MountedDevices` drive letter mapping (offline copy) if letters look wrong after boot.
-- The HAL type (affects ACPI/APIC settings) if the guest hangs early: compare the HAL file in `System32`.
+## 3. Also check by hand
 
-## Reading findings
+- Partition table: `Get-Partition`, MBR or GPT, system versus OS partition; the system partition's NTFS boot sector
+  (sectors per track, heads, hidden sectors equal to the partition start) and total sectors against the partition size.
+- `chkdsk X:` (read-only) and `fsutil fsinfo ntfsinfo X:` for the NTFS and log versions.
 
-| Id | Severity | Meaning | Go to |
-|---|---|---|---|
-| `OEM-KERNEL` | error | boot.ini selects a replaced kernel | `bsod-triage` OEM section |
-| `STOP-0x7B-IDE-DISABLED` | error | IDE drivers not boot-start | `bsod-triage` 0x7B |
-| `CRITICAL-DEVICE-ENTRIES` | warn | no entry for the VM's IDE controller | `bsod-triage` 0x7B |
-| `IDE-SERVICE-MISSING` | warn | generic IDE driver absent | inject drivers or use another controller |
-| `BCD-DISK-SIGNATURE` | info | BCD still points at the old disk | `bsod-triage` 0xc000000e |
-| `NO-BOOT-CONFIG` | warn | analysing the wrong partition | analyse the boot partition |
-| `NO-WINDOWS` | error | not the OS partition | point `-Root` elsewhere |
-| `X64-GUEST` | info | 64-bit guest | enable VT-x in BIOS and I/O APIC in the VM |
-
-Report evidence and inference separately. A clean report does not guarantee a boot; it only removes the
-known causes.
+Report evidence and inference separately. A clean report removes known causes; it does not guarantee a boot.
