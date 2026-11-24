@@ -24,6 +24,7 @@ recipe, and evidence-based BSOD triage. A worked case is in [docs/FINDINGS.md](d
 | `skills/ghost-analyse` | analyse the restored Windows before booting |
 | `skills/vbox-vm` | VirtualBox settings per guest, host hypervisor conflict, boot screenshots |
 | `skills/bsod-triage` | symptom to cause to fix: hypervisor, APIC/HAL, dirty NTFS, IDE entries, BCD, EFI, OEM kernel |
+| `skills/vbox-mouse` | pointer vanishes in a guest without Guest Additions: PS/2 versus USB tablet, VM lock errors |
 
 ## Scripts
 

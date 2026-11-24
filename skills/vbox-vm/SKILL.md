@@ -82,6 +82,8 @@ menu is up, or extra key presses boot normally.
 | `Access to a CIM resource was not available` | not elevated | reopen as Administrator |
 | Black screen | firmware mismatch (GPT versus BIOS) | match firmware to the disk's partition style |
 | `screenshotpng` "aWidth is invalid" | the VM already crashed | read the log; power off |
+| Mouse pointer vanishes or is stuck in the guest | no Guest Additions: PS/2 mouse is captured | `vbox-mouse` (Right Ctrl; optional USB tablet) |
+| `modifyvm`/`startvm`: "already locked for a session" | a VM window (even "Soft Keyboard") still holds the VM | close every window of that VM, then retry (`vbox-mouse`) |
 
 ## Rules
 

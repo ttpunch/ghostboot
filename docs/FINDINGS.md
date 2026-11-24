@@ -48,3 +48,8 @@ The VM booted to the Windows 2000 desktop after three separate fixes. No registr
   hours: attach it read-only and analyse it.
 - Ghost on the host wrote a crash dump in its folder; a host-side restore can crash or dirty the volume. A Windows VM running
   Ghost with the blank disk attached avoids this.
+- After the guest booted, the pointer kept vanishing: the VM had a PS/2 mouse, USB off and no Guest Additions (run level 0), so
+  clicking in the window captured the mouse. See `skills/vbox-mouse`. The PS/2 mouse is not required (it is the default and
+  worked); a USB tablet is an optional fix and was **not yet tested** on this image.
+- `modifyvm`/`startvm` failed with "already locked for a session" while the VM showed Powered Off, because a leftover VM window
+  (titled "<vm> - Soft Keyboard") still held the session. Retrying does not help; close the window.
